@@ -1,7 +1,21 @@
+#include "raylib.h"
+
+#if defined(_WIN32)           
+	#define NOGDI            
+	#define NOUSER           
+#endif
+
+#include <Windows.h> 
+
+#if defined(_WIN32)           
+	#undef far
+#endif
+
 #include <iostream>
 #include <vector>
 #include <cpr/cpr.h>
 #include <json.hpp>
+#include <chrono>
 
 // Airplane struct to hold flight data
 struct Airplane {
@@ -16,26 +30,24 @@ struct Airplane {
     std::string hex;
 };
 
+// Converts latitude/longitude to screen coordinates
+Vector2 ConvertToScreen(double lat, double lon, double mapMinLat, double mapMaxLat, double mapMinLon, double mapMaxLon, int screenWidth, int screenHeight) {
+    float x = ((lon - mapMinLon) / (mapMaxLon - mapMinLon)) * screenWidth;
+    float y = ((lat - mapMinLat) / (mapMaxLat - mapMinLat)) * screenHeight;
+    return { x, screenHeight - y }; // Flip Y-axis to match screen coordinates
+}
+
 // Function to fetch airplane data
 std::vector<Airplane> fetchAirplaneData(int latitude, int longitude, int radius) {
     std::vector<Airplane> airplanes;
-    
-    // Construct API URL
-    std::string url = "https://api.airplanes.live/v2/point/" + 
-                      std::to_string(latitude) + "/" + 
-                      std::to_string(longitude) + "/" + 
-                      std::to_string(radius);
-    
-    // Fetch data
+    std::string url = "https://api.airplanes.live/v2/point/" + std::to_string(latitude) + "/" +
+                      std::to_string(longitude) + "/" + std::to_string(radius);
+
     cpr::Response response = cpr::Get(cpr::Url{url});
-    
-    // Check response
+
     if (response.status_code == 200) {
         try {
-            // Parse JSON response
             auto json_data = nlohmann::json::parse(response.text);
-            
-            // Extract airplane data from "ac" field
             for (const auto& item : json_data["ac"]) {
                 Airplane plane;
                 plane.flight = item.value("flight", "UNKNOWN");
@@ -47,8 +59,6 @@ std::vector<Airplane> fetchAirplaneData(int latitude, int longitude, int radius)
                 plane.type = item.value("desc", "UNKNOWN");
                 plane.airline = item.value("ownOp", "UNKNOWN");
                 plane.hex = item.value("hex", "UNKNOWN");
-
-                // Store in the list
                 airplanes.push_back(plane);
             }
         } catch (const std::exception &e) {
@@ -57,25 +67,48 @@ std::vector<Airplane> fetchAirplaneData(int latitude, int longitude, int radius)
     } else {
         std::cerr << "Failed to fetch data. HTTP Status: " << response.status_code << std::endl;
     }
-
     return airplanes;
 }
 
-// Main function to test fetching
 int main() {
+    // Initialize Raylib
+    const int screenWidth = 1280;
+    const int screenHeight = 720;
+    InitWindow(screenWidth, screenHeight, "AirplanesLive Clone");
+    SetTargetFPS(60);
+
+    // Initial data fetch
     int latitude = 40;
     int longitude = -74;
     int radius = 1000;
-
     std::vector<Airplane> airplanes = fetchAirplaneData(latitude, longitude, radius);
 
-    // Print fetched airplanes
-    for (const auto& plane : airplanes) {
-        std::cout << "Flight: " << plane.flight << " | "
-                  << "Lat: " << plane.latitude << ", Lon: " << plane.longitude << " | "
-                  << "Alt: " << plane.altitude << "ft | Speed: " << plane.speed << "kt | "
-                  << "Type: " << plane.type << " | Airline: " << plane.airline << std::endl;
+    auto lastUpdate = std::chrono::steady_clock::now();
+    const int updateInterval = 5; // Fetch new data every 5 seconds
+
+    while (!WindowShouldClose()) {
+        auto now = std::chrono::steady_clock::now();
+        double elapsed = std::chrono::duration<double>(now - lastUpdate).count();
+
+        if (elapsed > updateInterval) {
+            airplanes = fetchAirplaneData(latitude, longitude, radius);
+            lastUpdate = now;
+        }
+
+        BeginDrawing();
+        ClearBackground(RAYWHITE);
+        DrawText("AirplanesLive Clone - Raylib", 10, 10, 20, DARKGRAY);
+
+        // Render airplanes
+        for (const auto& plane : airplanes) {
+            Vector2 position = ConvertToScreen(plane.latitude, plane.longitude, 20, 50, -130, -60, screenWidth, screenHeight);
+            DrawCircleV(position, 5, RED);
+            DrawText(plane.flight.c_str(), position.x + 10, position.y, 10, BLACK);
+        }
+
+        EndDrawing();
     }
 
+    CloseWindow();
     return 0;
 }

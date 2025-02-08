@@ -1,3 +1,7 @@
 build/
 .vscode/
-*.exe
+*.exe]
+*.txt
+*.png
+window.cpp
+window.hpp
